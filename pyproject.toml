@@ -1,0 +1,13 @@
+[project]
+name = "dsn-uri-converter"
+version = "0.1.0"
+description = "Convert database connection strings between libpq DSN and URI formats"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[project.scripts]
+connstr-convert = "connstr_convert.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
