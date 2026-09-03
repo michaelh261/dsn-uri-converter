@@ -10,7 +10,7 @@ hand-translate quoting rules between the two, hence this.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 # DSN keys that map onto a dedicated field rather than the free-form params
@@ -34,6 +34,9 @@ class ConnectionParams:
     username: Optional[str] = None
     password: Optional[str] = None
     params: Dict[str, str] = field(default_factory=dict)
+    # Set instead of host/port for multi-host DSNs (replica/failover lists:
+    # host=primary,replica1,replica2). Empty for the single-host case.
+    hosts: List[Tuple[str, Optional[int]]] = field(default_factory=list)
 
 
 def _tokenize_dsn(dsn: str):
@@ -91,28 +94,69 @@ def _quote_dsn_value(value: str) -> str:
 
 
 def parse_dsn(dsn: str) -> ConnectionParams:
-    """Parse a libpq-style DSN into a ConnectionParams."""
+    """Parse a libpq-style DSN into a ConnectionParams.
+
+    host and port accept comma-separated lists for replica/failover setups
+    (host=primary,replica port=5432,5433), per libpq's multi-host DSN rules:
+    a single port applies to every host, otherwise the port count must match
+    the host count.
+    """
     params = ConnectionParams()
     extra = {}
+    host_raw = None
+    port_raw = None
     for key, value in _tokenize_dsn(dsn):
+        if key == "host":
+            host_raw = value
+            continue
+        if key == "port":
+            port_raw = value
+            continue
         field_name = _DSN_TO_FIELD.get(key)
-        if field_name == "port":
-            params.port = int(value)
-        elif field_name is not None:
+        if field_name is not None:
             setattr(params, field_name, value)
         else:
             extra[key] = value
     params.params = extra
+
+    if host_raw is not None:
+        hosts = [h.strip() for h in host_raw.split(",")]
+        ports = [p.strip() for p in port_raw.split(",")] if port_raw is not None else []
+        if len(ports) > 1 and len(ports) != len(hosts):
+            raise ValueError(
+                f"host/port count mismatch in dsn: {len(hosts)} host(s), "
+                f"{len(ports)} port(s)"
+            )
+        if len(hosts) > 1:
+            if not ports:
+                resolved_ports = [None] * len(hosts)
+            elif len(ports) == 1:
+                resolved_ports = [int(ports[0])] * len(hosts) if ports[0] else [None] * len(hosts)
+            else:
+                resolved_ports = [int(p) if p else None for p in ports]
+            params.hosts = list(zip(hosts, resolved_ports))
+        else:
+            params.host = hosts[0]
+            if ports and ports[0]:
+                params.port = int(ports[0])
     return params
 
 
 def to_dsn(params: ConnectionParams) -> str:
     """Render a ConnectionParams as a libpq-style DSN string."""
     parts = []
-    if params.host:
-        parts.append(f"host={_quote_dsn_value(params.host)}")
-    if params.port:
-        parts.append(f"port={params.port}")
+    if params.hosts:
+        parts.append(
+            f"host={_quote_dsn_value(','.join(h for h, _ in params.hosts))}"
+        )
+        if any(p is not None for _, p in params.hosts):
+            port_list = ",".join(str(p) if p is not None else "" for _, p in params.hosts)
+            parts.append(f"port={_quote_dsn_value(port_list)}")
+    else:
+        if params.host:
+            parts.append(f"host={_quote_dsn_value(params.host)}")
+        if params.port:
+            parts.append(f"port={params.port}")
     if params.database:
         parts.append(f"dbname={_quote_dsn_value(params.database)}")
     if params.username:
@@ -124,17 +168,37 @@ def to_dsn(params: ConnectionParams) -> str:
     return " ".join(parts)
 
 
+def _split_hostport(chunk: str) -> Tuple[str, Optional[int]]:
+    chunk = chunk.strip()
+    host, sep, port = chunk.rpartition(":")
+    if sep:
+        return host, int(port)
+    return chunk, None
+
+
 def parse_uri(uri: str) -> ConnectionParams:
-    """Parse a scheme://user:pass@host:port/db?params URI into a ConnectionParams."""
+    """Parse a scheme://user:pass@host:port/db?params URI into a ConnectionParams.
+
+    Also accepts a comma-separated host list in place of a single host, as
+    used by libpq-derived clients for replica/failover URIs:
+    scheme://user:pass@host1:port1,host2:port2/db
+    """
     split = urlsplit(uri)
     if not split.scheme:
         raise ValueError(f"not a valid connection uri (missing scheme): {uri!r}")
 
     params = ConnectionParams(scheme=split.scheme)
-    if split.hostname:
-        params.host = split.hostname
-    if split.port:
-        params.port = split.port
+
+    _, _, hostinfo = split.netloc.rpartition("@")
+    if "," in hostinfo:
+        # split.hostname/.port assume a single host:port and choke on the
+        # extra commas and colons, so parse the host list by hand.
+        params.hosts = [_split_hostport(chunk) for chunk in hostinfo.split(",")]
+    else:
+        if split.hostname:
+            params.host = split.hostname
+        if split.port:
+            params.port = split.port
     if split.username:
         params.username = unquote(split.username)
     if split.password:
@@ -159,10 +223,15 @@ def to_uri(params: ConnectionParams, scheme: Optional[str] = None) -> str:
             auth += f":{quote(params.password, safe='')}"
         auth += "@"
 
-    host = params.host or "localhost"
-    netloc = f"{auth}{host}"
-    if params.port:
-        netloc += f":{params.port}"
+    if params.hosts:
+        netloc = auth + ",".join(
+            f"{h}:{p}" if p is not None else h for h, p in params.hosts
+        )
+    else:
+        host = params.host or "localhost"
+        netloc = f"{auth}{host}"
+        if params.port:
+            netloc += f":{params.port}"
 
     path = f"/{quote(params.database, safe='')}" if params.database else ""
     query = f"?{urlencode(params.params)}" if params.params else ""

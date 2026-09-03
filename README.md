@@ -57,13 +57,16 @@ URI, everything else is treated as a DSN.
 - Percent-encoding of usernames, passwords, and database names in URIs
 - Arbitrary extra parameters (`sslmode`, `connect_timeout`, etc.) carried
   through in both directions
+- Multi-host DSNs and URIs for replica/failover setups, e.g.
+  `host=primary,replica port=5432,5433` or
+  `postgresql://user@primary:5432,replica:5433/db`
 - Round-tripping a value through both converters gives back the same
   connection info, even when it contains reserved characters
 
 ## What's not handled yet
 
-See the project's open issues — multi-host DSNs and IPv6 literals in
-particular aren't covered by the current parser.
+See the project's open issues — IPv6 host literals in particular aren't
+covered by the current parser.
 
 ## Requirements
 
