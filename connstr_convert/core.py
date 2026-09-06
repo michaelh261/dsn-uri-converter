@@ -169,11 +169,31 @@ def to_dsn(params: ConnectionParams) -> str:
 
 
 def _split_hostport(chunk: str) -> Tuple[str, Optional[int]]:
+    """Split a host[:port] chunk, understanding bracketed IPv6 literals.
+
+    A bare rpartition(":") breaks on "[::1]" (no port), since the address
+    itself is full of colons: it would carve off "1]" as the port. Brackets
+    have to be located explicitly before falling back to the simple case.
+    """
     chunk = chunk.strip()
+    if chunk.startswith("["):
+        end = chunk.find("]")
+        if end == -1:
+            raise ValueError(f"unterminated ipv6 literal in host: {chunk!r}")
+        host = chunk[1:end]
+        rest = chunk[end + 1 :]
+        if rest.startswith(":"):
+            return host, int(rest[1:])
+        return host, None
     host, sep, port = chunk.rpartition(":")
     if sep:
         return host, int(port)
     return chunk, None
+
+
+def _format_host(host: str) -> str:
+    """Wrap an IPv6 literal in brackets for use in a URI netloc."""
+    return f"[{host}]" if ":" in host else host
 
 
 def parse_uri(uri: str) -> ConnectionParams:
@@ -225,10 +245,11 @@ def to_uri(params: ConnectionParams, scheme: Optional[str] = None) -> str:
 
     if params.hosts:
         netloc = auth + ",".join(
-            f"{h}:{p}" if p is not None else h for h, p in params.hosts
+            f"{_format_host(h)}:{p}" if p is not None else _format_host(h)
+            for h, p in params.hosts
         )
     else:
-        host = params.host or "localhost"
+        host = _format_host(params.host or "localhost")
         netloc = f"{auth}{host}"
         if params.port:
             netloc += f":{params.port}"

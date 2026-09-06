@@ -60,13 +60,10 @@ URI, everything else is treated as a DSN.
 - Multi-host DSNs and URIs for replica/failover setups, e.g.
   `host=primary,replica port=5432,5433` or
   `postgresql://user@primary:5432,replica:5433/db`
+- IPv6 host literals in URIs, bracketed per RFC 3986
+  (`postgresql://user@[::1]:5432/db`), including in multi-host lists
 - Round-tripping a value through both converters gives back the same
   connection info, even when it contains reserved characters
-
-## What's not handled yet
-
-See the project's open issues — IPv6 host literals in particular aren't
-covered by the current parser.
 
 ## Requirements
 
