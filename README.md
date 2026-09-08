@@ -69,6 +69,12 @@ URI, everything else is treated as a DSN.
 
 Python 3.9+, standard library only.
 
+## Testing
+
+```
+$ python -m unittest discover
+```
+
 ## License
 
 MIT, see LICENSE.
