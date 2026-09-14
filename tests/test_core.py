@@ -96,5 +96,40 @@ class DsnRoundTrip(unittest.TestCase):
         self.assertEqual(parse_uri(uri).password, "it's a \\secret")
 
 
+class SqliteUri(unittest.TestCase):
+    def test_relative_path_round_trip(self):
+        uri = "sqlite:///relative/path.db"
+        parsed = parse_uri(uri)
+        self.assertEqual(parsed.database, "relative/path.db")
+        self.assertIsNone(parsed.host)
+        self.assertEqual(to_uri(parsed), uri)
+
+    def test_absolute_path_round_trip(self):
+        uri = "sqlite:////absolute/path.db"
+        parsed = parse_uri(uri)
+        self.assertEqual(parsed.database, "/absolute/path.db")
+        self.assertEqual(to_uri(parsed), uri)
+
+    def test_memory_database_round_trip(self):
+        uri = "sqlite:///:memory:"
+        parsed = parse_uri(uri)
+        self.assertEqual(parsed.database, ":memory:")
+        self.assertEqual(to_uri(parsed), uri)
+
+    def test_to_uri_ignores_host_and_auth(self):
+        params = ConnectionParams(
+            scheme="sqlite",
+            host="localhost",
+            username="admin",
+            password="secret",
+            database="path/to.db",
+        )
+        self.assertEqual(to_uri(params), "sqlite:///path/to.db")
+
+    def test_dsn_to_sqlite_uri(self):
+        parsed = parse_dsn("dbname=/var/data/app.db")
+        self.assertEqual(to_uri(parsed, scheme="sqlite"), "sqlite:////var/data/app.db")
+
+
 if __name__ == "__main__":
     unittest.main()

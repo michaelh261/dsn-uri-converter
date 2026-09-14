@@ -224,9 +224,19 @@ def parse_uri(uri: str) -> ConnectionParams:
     if split.password:
         params.password = unquote(split.password)
 
-    database = split.path.lstrip("/")
-    if database:
-        params.database = unquote(database)
+    if split.scheme == "sqlite":
+        # sqlite uris hold a filesystem path, not a host: there's no netloc,
+        # and the path keeps a leading slash for the absolute case
+        # (sqlite:////abs/path.db) vs. none for the relative case
+        # (sqlite:///rel/path.db). A plain lstrip("/") would erase that
+        # distinction, so only the one slash that separates "://" from the
+        # path is dropped.
+        if split.path:
+            params.database = unquote(split.path[1:])
+    else:
+        database = split.path.lstrip("/")
+        if database:
+            params.database = unquote(database)
 
     params.params = dict(parse_qsl(split.query))
     return params
@@ -235,6 +245,13 @@ def parse_uri(uri: str) -> ConnectionParams:
 def to_uri(params: ConnectionParams, scheme: Optional[str] = None) -> str:
     """Render a ConnectionParams as a scheme://user:pass@host:port/db?params URI."""
     scheme = scheme or params.scheme or "postgresql"
+
+    if scheme.lower() == "sqlite":
+        # no host/user/port for a file-based database; see parse_uri for why
+        # the leading slash is added back rather than stripped.
+        path = f"/{quote(params.database, safe='/:')}" if params.database else "/"
+        query = f"?{urlencode(params.params)}" if params.params else ""
+        return f"{scheme}://{path}{query}"
 
     auth = ""
     if params.username:

@@ -62,6 +62,9 @@ URI, everything else is treated as a DSN.
   `postgresql://user@primary:5432,replica:5433/db`
 - IPv6 host literals in URIs, bracketed per RFC 3986
   (`postgresql://user@[::1]:5432/db`), including in multi-host lists
+- `sqlite://` URIs, where the path is a filesystem path rather than a host:
+  `sqlite:///relative.db` (relative) vs. `sqlite:////absolute/path.db`
+  (absolute), and `sqlite:///:memory:`
 - Round-tripping a value through both converters gives back the same
   connection info, even when it contains reserved characters
 
