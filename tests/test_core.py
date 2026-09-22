@@ -96,6 +96,40 @@ class DsnRoundTrip(unittest.TestCase):
         self.assertEqual(parse_uri(uri).password, "it's a \\secret")
 
 
+class HostlessUri(unittest.TestCase):
+    """mysql (and mysqlclient/psycopg) use an empty host to mean "connect via
+    the local unix socket named in the unix_socket/host param", e.g.
+    mysql://user:pass@/db?unix_socket=/var/run/mysqld/mysqld.sock. Filling in
+    a default host on output would silently turn that into a TCP connection.
+    """
+
+    def test_to_uri_omits_host_when_absent(self):
+        params = ConnectionParams(
+            scheme="mysql",
+            username="admin",
+            password="secret",
+            database="mydb",
+            params={"unix_socket": "/var/run/mysqld/mysqld.sock"},
+        )
+        self.assertEqual(
+            to_uri(params),
+            "mysql://admin:secret@/mydb?unix_socket=%2Fvar%2Frun%2Fmysqld%2Fmysqld.sock",
+        )
+
+    def test_hostless_uri_round_trip(self):
+        uri = "mysql://admin:secret@/mydb?unix_socket=%2Ftmp%2Fmysql.sock"
+        parsed = parse_uri(uri)
+        self.assertIsNone(parsed.host)
+        self.assertEqual(to_uri(parsed), uri)
+
+    def test_hostless_dsn_to_uri_to_dsn(self):
+        dsn = "dbname=mydb user=admin password=secret"
+        parsed = parse_dsn(dsn)
+        via_uri = parse_uri(to_uri(parsed, scheme="mysql"))
+        self.assertIsNone(via_uri.host)
+        self.assertEqual(to_dsn(via_uri), dsn)
+
+
 class SqliteUri(unittest.TestCase):
     def test_relative_path_round_trip(self):
         uri = "sqlite:///relative/path.db"

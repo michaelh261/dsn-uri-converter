@@ -266,7 +266,11 @@ def to_uri(params: ConnectionParams, scheme: Optional[str] = None) -> str:
             for h, p in params.hosts
         )
     else:
-        host = _format_host(params.host or "localhost")
+        # No host means "local unix socket", per libpq and mysqlclient alike
+        # (mysql://user:pass@/db?unix_socket=/var/run/mysqld/mysqld.sock is
+        # the standard mysql idiom for this). Filling in "localhost" here
+        # would silently turn that into a TCP connection.
+        host = _format_host(params.host) if params.host else ""
         netloc = f"{auth}{host}"
         if params.port:
             netloc += f":{params.port}"

@@ -65,6 +65,9 @@ URI, everything else is treated as a DSN.
 - `sqlite://` URIs, where the path is a filesystem path rather than a host:
   `sqlite:///relative.db` (relative) vs. `sqlite:////absolute/path.db`
   (absolute), and `sqlite:///:memory:`
+- Host-less URIs (`mysql://user:pass@/db?unix_socket=/var/run/mysqld/mysqld.sock`),
+  the standard way mysql clients spell "connect over a local unix socket".
+  No host stays no host on output instead of being filled in as `localhost`.
 - Round-tripping a value through both converters gives back the same
   connection info, even when it contains reserved characters
 
